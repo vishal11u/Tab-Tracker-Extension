@@ -1,0 +1,52 @@
+{
+    "manifest_version": 3,
+    "name": "Tab Tracker - Auto Group Tabs",
+    "version": "1.0",
+    "description": "Automatically groups tabs by category and shows a clean summary bar",
+    "permissions": [
+        "tabs",
+        "tabGroups",
+        "activeTab",
+        "storage",
+        "notifications",
+        "commands"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_popup": "popup.html",
+        "default_title": "Tab Tracker",
+        "default_icon": {
+            "16": "icons/icon-16.png",
+            "32": "icons/icon-32.png",
+            "48": "icons/icon-48.png",
+            "128": "icons/icon-128.png"
+        }
+    },
+    "icons": {
+        "16": "icons/icon-16.png",
+        "32": "icons/icon-32.png",
+        "48": "icons/icon-48.png",
+        "128": "icons/icon-128.png"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "commands": {
+        "group-tabs": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+G"
+            },
+            "description": "Group all tabs now"
+        }
+    }
+}
