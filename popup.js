@@ -18,30 +18,88 @@ const categoryColors = {
   News: "grey",
 };
 
-// Modal logic for custom category form
-const showCategoryModalBtn = document.getElementById('show-category-modal');
-const categoryModalOverlay = document.getElementById('category-modal-overlay');
-const closeCategoryModalBtn = document.getElementById('close-category-modal');
-
-showCategoryModalBtn.addEventListener('click', () => {
-  categoryModalOverlay.style.display = 'flex';
-});
-closeCategoryModalBtn.addEventListener('click', () => {
-  categoryModalOverlay.style.display = 'none';
-});
-categoryModalOverlay.addEventListener('click', (e) => {
-  if (e.target === categoryModalOverlay) {
-    categoryModalOverlay.style.display = 'none';
-  }
-});
-
 // Initialize popup
 document.addEventListener("DOMContentLoaded", async () => {
-  await loadSettings();
-  await loadStats();
-  await loadCustomCategories();
-  await loadThemePreference();
-  setupEventListeners();
+  try {
+    // Initialize modal elements after DOM is loaded
+    const showCategoryModalBtn = document.getElementById('show-category-modal');
+    const categoryModalOverlay = document.getElementById('category-modal-overlay');
+    const closeCategoryModalBtn = document.getElementById('close-category-modal');
+    const categoryForm = document.getElementById('category-form');
+    const themeToggleEl = document.getElementById('theme-toggle');
+
+    // Check if all modal elements exist
+    if (!showCategoryModalBtn || !categoryModalOverlay || !closeCategoryModalBtn || !categoryForm) {
+      console.error('Some modal elements are missing. Please check the HTML structure.');
+      return;
+    }
+
+    // Set up modal event listeners
+    showCategoryModalBtn.addEventListener('click', () => {
+      categoryModalOverlay.style.display = 'flex';
+      categoryModalOverlay.style.position = 'fixed';
+      categoryModalOverlay.style.top = '0';
+      categoryModalOverlay.style.left = '0';
+      categoryModalOverlay.style.right = '0';
+      categoryModalOverlay.style.bottom = '0';
+      categoryModalOverlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+      categoryModalOverlay.style.justifyContent = 'center';
+      categoryModalOverlay.style.alignItems = 'center';
+      categoryModalOverlay.style.zIndex = '1000';
+    });
+
+    closeCategoryModalBtn.addEventListener('click', () => {
+      categoryModalOverlay.style.display = 'none';
+    });
+
+    categoryModalOverlay.addEventListener('click', (e) => {
+      if (e.target === categoryModalOverlay) {
+        categoryModalOverlay.style.display = 'none';
+      }
+    });
+
+    // Handle form submission
+    categoryForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const name = document.getElementById('category-name').value;
+      const pattern = document.getElementById('category-pattern').value;
+      const color = document.getElementById('category-color').value;
+
+      if (!name || !pattern) {
+        alert('Please fill in both category name and URL pattern');
+        return;
+      }
+
+      const customCategories = await getCustomCategories();
+      customCategories[name] = { pattern, color };
+      await chrome.storage.sync.set({ customCategories });
+
+      document.getElementById('category-name').value = '';
+      document.getElementById('category-pattern').value = '';
+      document.getElementById('category-color').value = '#4CAF50';
+
+      categoryModalOverlay.style.display = 'none';
+      loadCustomCategories();
+    });
+
+    // Set up theme toggle
+    if (themeToggleEl) {
+      themeToggleEl.addEventListener('click', async () => {
+        const isDarkMode = document.body.classList.toggle('dark-mode');
+        await chrome.storage.sync.set({ darkMode: isDarkMode });
+        updateToggle(themeToggleEl, isDarkMode);
+      });
+    }
+
+    await loadSettings();
+    await loadStats();
+    await loadCustomCategories();
+    await loadThemePreference();
+    setupEventListeners();
+  } catch (error) {
+    console.error('Error initializing popup:', error);
+    loadingEl.textContent = "Error initializing extension";
+  }
 });
 
 // Load settings from storage
@@ -49,7 +107,10 @@ async function loadSettings() {
   try {
     const result = await chrome.storage.sync.get(["autoGroupEnabled"]);
     const autoGroupEnabled = result.autoGroupEnabled !== false; // Default to true
-    updateToggle(autoGroupEnabled);
+    const autoToggleEl = document.getElementById('auto-toggle');
+    if (autoToggleEl) {
+      updateToggle(autoToggleEl, autoGroupEnabled);
+    }
   } catch (error) {
     console.error("Error loading settings:", error);
   }
@@ -65,6 +126,13 @@ async function loadStats() {
     displayStats(stats);
     loadingEl.style.display = "none";
     contentEl.style.display = "block";
+
+    // Update group/ungroup button state
+    if (stats.allGrouped) {
+      groupNowBtn.textContent = "📋 Ungroup All Tabs";
+    } else {
+      groupNowBtn.textContent = "📋 Group All Tabs Now";
+    }
   } catch (error) {
     console.error("Error loading stats:", error);
     loadingEl.textContent = "Error loading stats";
@@ -94,45 +162,10 @@ function displayStats(stats) {
     emptyEl.textContent = "No categorized tabs yet";
     categoriesListEl.appendChild(emptyEl);
   }
-
-  // Display time tracking information
-  const timeTrackingListEl = document.getElementById('time-tracking-list');
-  timeTrackingListEl.innerHTML = '';
-
-  if (stats.timeSpent && Object.keys(stats.timeSpent).length > 0) {
-    Object.entries(stats.timeSpent)
-      .sort(([, a], [, b]) => {
-        const timeA = parseInt(a.time) || 0;
-        const timeB = parseInt(b.time) || 0;
-        return timeB - timeA;
-      })
-      .forEach(([tabId, data]) => {
-        const timeEntry = document.createElement('div');
-        timeEntry.className = 'time-entry';
-        
-        const titleEl = document.createElement('div');
-        titleEl.className = 'time-entry-title';
-        titleEl.textContent = data.title;
-        
-        const durationEl = document.createElement('div');
-        durationEl.className = 'time-entry-duration';
-        durationEl.textContent = data.time;
-        
-        timeEntry.appendChild(titleEl);
-        timeEntry.appendChild(durationEl);
-        timeTrackingListEl.appendChild(timeEntry);
-      });
-  } else {
-    const emptyEl = document.createElement('div');
-    emptyEl.className = 'time-entry';
-    emptyEl.style.opacity = '0.6';
-    emptyEl.textContent = 'No time tracking data available';
-    timeTrackingListEl.appendChild(emptyEl);
-  }
 }
 
 // Create a category element
-function createCategoryElement(category, count, color = null, emoji = null) {
+function createCategoryElement(category, count, color = null) {
   const categoryEl = document.createElement("div");
   categoryEl.className = "category-item";
 
@@ -143,7 +176,7 @@ function createCategoryElement(category, count, color = null, emoji = null) {
   colorEl.className = `category-color color-${color || categoryColors[category] || "grey"}`;
 
   const textEl = document.createElement("span");
-  textEl.textContent = emoji ? `${emoji} ${category}` : category;
+  textEl.textContent = category;
 
   nameEl.appendChild(colorEl);
   nameEl.appendChild(textEl);
@@ -165,7 +198,7 @@ function setupEventListeners() {
     const isActive = autoToggleEl.classList.contains("active");
     const newState = !isActive;
 
-    updateToggle(newState);
+    updateToggle(autoToggleEl, newState);
 
     chrome.runtime.sendMessage({
       action: "toggleAutoGroup",
@@ -173,27 +206,40 @@ function setupEventListeners() {
     });
   });
 
-  // Group now button
-  groupNowBtn.addEventListener("click", () => {
-    groupNowBtn.textContent = "⏳ Grouping...";
-    groupNowBtn.disabled = true;
+  // Group/Ungroup button
+  groupNowBtn.addEventListener("click", async () => {
+    const isGrouped = groupNowBtn.textContent.includes("Ungroup");
+    
+    if (isGrouped) {
+      groupNowBtn.textContent = "⏳ Ungrouping...";
+      groupNowBtn.disabled = true;
 
-    chrome.runtime.sendMessage({ action: "groupNow" }, () => {
-      setTimeout(() => {
-        loadStats();
-        groupNowBtn.textContent = "📋 Group All Tabs Now";
-        groupNowBtn.disabled = false;
-      }, 1000);
-    });
+      chrome.runtime.sendMessage({ action: "ungroupNow" }, () => {
+        setTimeout(() => {
+          loadStats();
+          groupNowBtn.disabled = false;
+        }, 1000);
+      });
+    } else {
+      groupNowBtn.textContent = "⏳ Grouping...";
+      groupNowBtn.disabled = true;
+
+      chrome.runtime.sendMessage({ action: "groupNow" }, () => {
+        setTimeout(() => {
+          loadStats();
+          groupNowBtn.disabled = false;
+        }, 1000);
+      });
+    }
   });
 }
 
 // Update toggle appearance
-function updateToggle(enabled) {
+function updateToggle(toggleEl, enabled) {
   if (enabled) {
-    autoToggleEl.classList.add("active");
+    toggleEl.classList.add("active");
   } else {
-    autoToggleEl.classList.remove("active");
+    toggleEl.classList.remove("active");
   }
 }
 
@@ -204,65 +250,85 @@ setInterval(() => {
   }
 }, 5000);
 
-// Fix add category logic to use modal form
-const customCategoryForm = document.getElementById('custom-category-form');
-customCategoryForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const name = document.getElementById('category-name').value;
-  const pattern = document.getElementById('category-pattern').value;
-  const color = document.getElementById('category-color').value;
-  const emoji = document.getElementById('category-emoji').value;
-
-  const customCategories = await getCustomCategories();
-  customCategories[name] = { pattern, color, emoji };
-  await chrome.storage.sync.set({ customCategories });
-
-  document.getElementById('category-name').value = '';
-  document.getElementById('category-pattern').value = '';
-  document.getElementById('category-color').value = '#4CAF50';
-  document.getElementById('category-emoji').value = '';
-
-  categoryModalOverlay.style.display = 'none';
-  loadCustomCategories();
-});
+// Function to get custom categories from storage
+async function getCustomCategories() {
+  try {
+    const result = await chrome.storage.sync.get(['customCategories']);
+    return result.customCategories || {};
+  } catch (error) {
+    console.error('Error getting custom categories:', error);
+    return {};
+  }
+}
 
 // Function to load custom categories from storage
 async function loadCustomCategories() {
-  const customCategories = await getCustomCategories();
-  const customCategoriesListEl = document.getElementById('custom-categories-list');
-  customCategoriesListEl.innerHTML = '';
+  try {
+    const customCategories = await getCustomCategories();
+    const customCategoriesListEl = document.getElementById('custom-categories-list');
+    
+    if (!customCategoriesListEl) {
+      console.warn('Custom categories list element not found');
+      return;
+    }
 
-  Object.entries(customCategories).forEach(([name, data]) => {
-    const categoryEl = createCategoryElement(name, 0, data.color, data.emoji);
-    const removeButton = document.createElement('button');
-    removeButton.textContent = 'Remove';
-    removeButton.className = 'btn';
-    removeButton.onclick = () => removeCustomCategory(name);
-    categoryEl.appendChild(removeButton);
-    customCategoriesListEl.appendChild(categoryEl);
-  });
+    customCategoriesListEl.innerHTML = '';
+
+    if (Object.keys(customCategories).length === 0) {
+      const emptyEl = document.createElement("div");
+      emptyEl.className = "category-item";
+      emptyEl.style.opacity = "0.6";
+      emptyEl.textContent = "No custom categories yet";
+      customCategoriesListEl.appendChild(emptyEl);
+      return;
+    }
+
+    Object.entries(customCategories).forEach(([name, data]) => {
+      const categoryEl = createCategoryElement(name, 0, data.color);
+      const removeButton = document.createElement('button');
+      removeButton.textContent = 'Remove';
+      removeButton.className = 'btn';
+      removeButton.style.marginLeft = '10px';
+      removeButton.style.padding = '4px 8px';
+      removeButton.style.fontSize = '12px';
+      removeButton.onclick = () => removeCustomCategory(name);
+      categoryEl.appendChild(removeButton);
+      customCategoriesListEl.appendChild(categoryEl);
+    });
+  } catch (error) {
+    console.error('Error loading custom categories:', error);
+  }
 }
 
 // Function to remove a custom category
 async function removeCustomCategory(name) {
-  const customCategories = await getCustomCategories();
-  delete customCategories[name];
-  await chrome.storage.sync.set({ customCategories });
-  loadCustomCategories();
+  try {
+    const customCategories = await getCustomCategories();
+    delete customCategories[name];
+    await chrome.storage.sync.set({ customCategories });
+    await loadCustomCategories();
+  } catch (error) {
+    console.error('Error removing custom category:', error);
+  }
 }
 
 // Fix dark mode toggle and persistence
-const themeToggleEl = document.getElementById('theme-toggle');
-themeToggleEl.addEventListener('click', async () => {
-  const isDarkMode = document.body.classList.toggle('dark-mode');
-  await chrome.storage.sync.set({ darkMode: isDarkMode });
-});
-
 async function loadThemePreference() {
-  const result = await chrome.storage.sync.get(['darkMode']);
-  if (result.darkMode) {
-    document.body.classList.add('dark-mode');
-  } else {
-    document.body.classList.remove('dark-mode');
+  try {
+    const result = await chrome.storage.sync.get(['darkMode']);
+    const themeToggleEl = document.getElementById('theme-toggle');
+    if (result.darkMode) {
+      document.body.classList.add('dark-mode');
+      if (themeToggleEl) {
+        updateToggle(themeToggleEl, true);
+      }
+    } else {
+      document.body.classList.remove('dark-mode');
+      if (themeToggleEl) {
+        updateToggle(themeToggleEl, false);
+      }
+    }
+  } catch (error) {
+    console.error('Error loading theme preference:', error);
   }
 }

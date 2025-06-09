@@ -10,6 +10,7 @@ const TAB_CATEGORIES = {
       "tiktok.com",
       "reddit.com",
       "linkedin.com",
+      "web.whatsapp.com"
     ],
   },
   Work: {
@@ -60,6 +61,21 @@ const TAB_CATEGORIES = {
       "npr.org",
       "techcrunch.com",
       "hackernews.com",
+    ],
+  },
+  Trading: {
+    color: "yellow",
+    patterns: [
+      "tv.dhan.co",
+      "zerodha.com",
+      "kite.zerodha.com",
+      "upstox.com",
+      "groww.in",
+      "angelone.in",
+      "5paisa.com",
+      "icicidirect.com",
+      "kotaksecurities.com",
+      "hdfcsec.com"
     ],
   },
 };
@@ -231,6 +247,52 @@ async function getCategoriesFromStorage() {
   return result.categories || TAB_CATEGORIES;
 }
 
+// Function to group all tabs into a single group
+async function groupAllTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const validTabs = tabs.filter(tab => 
+      tab.url && 
+      !tab.url.startsWith("chrome://") && 
+      !tab.url.startsWith("chrome-extension://")
+    );
+
+    if (validTabs.length > 0) {
+      const tabIds = validTabs.map(tab => tab.id);
+      const groupId = await chrome.tabs.group({ tabIds });
+      await chrome.tabGroups.update(groupId, {
+        title: "All Tabs",
+        color: "grey"
+      });
+      tabIds.forEach(id => groupedTabs.add(id));
+      notifyTabGrouped("All Tabs");
+      updateBadge(1);
+    }
+  } catch (error) {
+    console.error("Error grouping all tabs:", error);
+  }
+}
+
+// Function to ungroup all tabs
+async function ungroupAllTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const groupedTabsArray = tabs.filter(tab => tab.groupId !== -1);
+    
+    if (groupedTabsArray.length > 0) {
+      // Ungroup all tabs
+      await chrome.tabs.ungroup(groupedTabsArray.map(tab => tab.id));
+      // Clear the groupedTabs set
+      groupedTabs.clear();
+      // Update badge
+      updateBadge(0);
+      notifyTabGrouped("All tabs ungrouped");
+    }
+  } catch (error) {
+    console.error("Error ungrouping tabs:", error);
+  }
+}
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "toggleAutoGroup") {
@@ -238,7 +300,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.sync.set({ autoGroupEnabled: message.enabled });
     sendResponse({ success: true });
   } else if (message.action === "groupNow") {
-    groupTabsAutomatically();
+    groupAllTabs();
+    sendResponse({ success: true });
+  } else if (message.action === "ungroupNow") {
+    ungroupAllTabs();
     sendResponse({ success: true });
   } else if (message.action === "getStats") {
     getTabStats().then((stats) => sendResponse(stats));
@@ -260,8 +325,16 @@ async function getTabStats() {
       grouped: 0,
       ungrouped: 0,
       categories: {},
-      timeSpent: {}
+      timeSpent: {},
+      allGrouped: false
     };
+
+    // Check if all tabs are in the same group
+    const allTabsGrouped = tabs.every(tab => tab.groupId !== -1);
+    const allInSameGroup = allTabsGrouped && tabs.length > 0 && 
+      tabs.every(tab => tab.groupId === tabs[0].groupId);
+
+    stats.allGrouped = allInSameGroup;
 
     for (const tab of tabs) {
       if (!tab.url || tab.url.startsWith('chrome://')) continue;
@@ -269,11 +342,10 @@ async function getTabStats() {
       const category = categorizeTab(tab.url, categories);
       if (category) {
         stats.categories[category] = (stats.categories[category] || 0) + 1;
-        if (groupedTabs.has(tab.id)) {
-          stats.grouped++;
-        } else {
-          stats.ungrouped++;
-        }
+      }
+      
+      if (tab.groupId !== -1) {
+        stats.grouped++;
       } else {
         stats.ungrouped++;
       }
@@ -290,7 +362,14 @@ async function getTabStats() {
     return stats;
   } catch (error) {
     console.error("Error getting tab stats:", error);
-    return { total: 0, grouped: 0, ungrouped: 0, categories: {}, timeSpent: {} };
+    return { 
+      total: 0, 
+      grouped: 0, 
+      ungrouped: 0, 
+      categories: {}, 
+      timeSpent: {},
+      allGrouped: false 
+    };
   }
 }
 
